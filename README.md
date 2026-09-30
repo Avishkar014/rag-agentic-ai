@@ -1,113 +1,499 @@
 # Agentic AI RAG Chatbot
 
-Question-answering service over the Agentic AI eBook (`data/Ebook-Agentic-AI.pdf`).
-Relevant passages are retrieved from Pinecone, Gemini generates the answer, and a
-grading step checks that the answer is supported by the retrieved passages before
-it is returned through a FastAPI API.
+A production-oriented Retrieval-Augmented Generation (RAG) chatbot built using **LangGraph, Pinecone, Hugging Face Sentence Transformers, Gemini, and FastAPI**.
 
-## 1. Project Objective
+The system ingests a PDF knowledge source, splits it into searchable chunks, generates vector embeddings locally using Hugging Face, stores them in Pinecone, retrieves relevant context for a user query, and uses Gemini to generate a grounded response.
 
-Answer questions about the contents of the Agentic AI eBook using retrieval
-augmented generation. Answers must be derived only from the retrieved document
-chunks. When the eBook does not cover a question, the system states that the
-document does not contain enough information instead of using outside knowledge.
+---
 
-## 2. Architecture
+## 1. Project Overview
 
-The workflow is a cyclic LangGraph state machine (`src/graph.py`):
+### Problem
+
+Large language models can generate useful answers but may produce information that is not present in a specific knowledge base.
+
+This project solves that problem by implementing a RAG pipeline that:
+
+1. Loads information from a PDF.
+2. Splits the PDF into smaller chunks.
+3. Generates vector embeddings using Hugging Face.
+4. Stores embeddings in Pinecone.
+5. Retrieves relevant document chunks for a query.
+6. Passes the retrieved context to Gemini.
+7. Generates a grounded answer.
+8. Exposes the complete pipeline through a FastAPI API.
+
+### Target Use Case
+
+The chatbot is designed for question answering over a specific document or knowledge base.
+
+The current knowledge source is an Agentic AI ebook.
+
+---
+
+## 2. Key Features
+
+* PDF document ingestion
+* Automatic document chunking
+* Local Hugging Face embeddings
+* Pinecone vector database
+* Semantic similarity search
+* LangGraph-based RAG workflow
+* Gemini-powered answer generation
+* Context-grounded responses
+* Out-of-context question handling
+* Confidence score
+* FastAPI REST API
+* Swagger/OpenAPI documentation
+* Health-check endpoint
+* Environment-based configuration
+* API response validation with Pydantic
+
+---
+
+## 3. Architecture
 
 ```text
-START -> retrieve -> generate -> grade -> END
-              ^                     |
-              |------ retry --------+
+                    ┌─────────────────────┐
+                    │       PDF File      │
+                    │ Ebook-Agentic-AI    │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │    PDF Loader       │
+                    │   PyPDFLoader       │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │   Text Splitter     │
+                    │  Chunk Generation   │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │ Hugging Face Model  │
+                    │ all-MiniLM-L6-v2    │
+                    │    384 dimensions   │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │      Pinecone       │
+                    │   Vector Database   │
+                    └──────────┬──────────┘
+                               │
+                               │ Semantic Search
+                               ▼
+┌──────────────┐     ┌─────────────────────┐
+│ User Query   │────►│    Retriever        │
+└──────────────┘     └──────────┬──────────┘
+                                │
+                                ▼
+                     ┌─────────────────────┐
+                     │     LangGraph       │
+                     │    RAG Workflow     │
+                     └──────────┬──────────┘
+                                │
+                                ▼
+                     ┌─────────────────────┐
+                     │       Gemini        │
+                     │   Answer Generator  │
+                     └──────────┬──────────┘
+                                │
+                                ▼
+                     ┌─────────────────────┐
+                     │    Final Answer     │
+                     │ Context + Confidence│
+                     └──────────┬──────────┘
+                                │
+                                ▼
+                     ┌─────────────────────┐
+                     │      FastAPI        │
+                     │      /chat          │
+                     └─────────────────────┘
 ```
 
-- `retrieve` embeds the query with `sentence-transformers/all-MiniLM-L6-v2` and
-  fetches the top 5 chunks from the Pinecone index.
-- `generate` calls `gemini-2.5-flash` and answers using only the retrieved chunks.
-- `grade` asks the same model whether the answer is supported by those chunks and
-  returns JSON with `grounded`, `confidence_score` and `reason`.
-- Routing returns a grounded answer directly. An ungrounded answer triggers one
-  more retrieval and generation attempt, then the run ends.
+---
 
-`src/api.py` exposes the compiled graph over HTTP.
+## 4. RAG Workflow
 
-## 3. Technologies
+The application follows this workflow:
 
-| Layer | Technology |
-| --- | --- |
-| Orchestration | LangGraph, LangChain |
-| Vector store | Pinecone serverless index (cosine, 384 dimensions) |
-| Embeddings | Hugging Face `sentence-transformers/all-MiniLM-L6-v2` |
-| Generation and grading | Google Gemini `gemini-2.5-flash` via `langchain-google-genai` |
-| API | FastAPI with Uvicorn |
-| PDF loading | `pypdf` via `PyPDFLoader`, `RecursiveCharacterTextSplitter` |
-| Configuration | `python-dotenv` |
+```text
+User Query
+    ↓
+FastAPI /chat
+    ↓
+LangGraph
+    ↓
+Query Embedding
+    ↓
+Pinecone Similarity Search
+    ↓
+Top Relevant Chunks
+    ↓
+Context Construction
+    ↓
+Gemini
+    ↓
+Grounded Answer
+    ↓
+Confidence Score
+    ↓
+FastAPI Response
+```
 
-## 4. Installation
+The system uses the uploaded document as the primary knowledge source.
 
-Python 3.10 or newer is required.
+If the retrieved context does not contain enough information to answer the question, the system is designed to return an insufficient-information response instead of relying on unsupported information.
+
+---
+
+## 5. Technology Stack
+
+| Component              | Technology                               |
+| ---------------------- | ---------------------------------------- |
+| Language               | Python                                   |
+| API                    | FastAPI                                  |
+| API Server             | Uvicorn                                  |
+| RAG Orchestration      | LangGraph                                |
+| LLM                    | Google Gemini                            |
+| Embeddings             | Hugging Face Sentence Transformers       |
+| Embedding Model        | `sentence-transformers/all-MiniLM-L6-v2` |
+| Vector Database        | Pinecone                                 |
+| PDF Processing         | PyPDFLoader                              |
+| Validation             | Pydantic                                 |
+| Environment Management | python-dotenv                            |
+
+---
+
+## 6. Project Structure
+
+```text
+rag-agentic-ai/
+│
+├── data/
+│   └── Ebook-Agentic-AI.pdf
+│
+├── src/
+│   ├── api.py
+│   ├── config.py
+│   ├── ingestion.py
+│   ├── retriever.py
+│   └── graph.py
+│
+├── check_index.py
+├── test_connections.py
+├── requirements.txt
+├── .env.example
+├── .gitignore
+└── README.md
+```
+
+### Important Files
+
+#### `src/ingestion.py`
+
+Responsible for:
+
+* Loading the PDF
+* Splitting documents into chunks
+* Generating embeddings
+* Uploading vectors to Pinecone
+
+#### `src/retriever.py`
+
+Responsible for:
+
+* Creating the Hugging Face embedding model
+* Connecting to Pinecone
+* Performing semantic similarity search
+* Returning relevant document chunks
+
+#### `src/graph.py`
+
+Responsible for:
+
+* Defining the LangGraph RAG workflow
+* Retrieving context
+* Calling Gemini
+* Generating the final answer
+* Producing confidence information
+
+#### `src/api.py`
+
+Responsible for:
+
+* FastAPI application
+* `/health` endpoint
+* `/chat` endpoint
+* Request validation
+* Response validation
+* Error handling
+
+#### `src/config.py`
+
+Responsible for:
+
+* Loading environment variables
+* Pinecone configuration
+* Google Gemini configuration
+
+---
+
+# 7. Requirements
+
+Before running the project, install:
+
+* Python 3.10+
+* Pinecone account
+* Google AI Studio / Gemini API key
+* Hugging Face account/token is optional for this embedding model
+
+---
+
+# 8. Installation
+
+Clone the repository:
 
 ```bash
+git clone https://github.com/Avishkar014/rag-agentic-ai.git
+```
+
+Move into the project:
+
+```bash
+cd rag-agentic-ai
+```
+
+Create a virtual environment:
+
+### Windows PowerShell
+
+```powershell
 python -m venv venv
-venv\Scripts\activate
-python -m pip install -r requirements.txt
 ```
 
-## 5. Environment Variables
+Activate it:
 
-Copy `.env.example` to `.env` and fill in your own values. `.env` is git-ignored
-and must never be committed.
+```powershell
+.\venv\Scripts\Activate.ps1
+```
+
+If PowerShell blocks activation:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+Then:
+
+```powershell
+.\venv\Scripts\Activate.ps1
+```
+
+---
+
+# 9. Install Dependencies
+
+Install all required packages:
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+# 10. Environment Variables
+
+Create a `.env` file in the project root.
+
+```env
+PINECONE_API_KEY=your_pinecone_api_key
+PINECONE_INDEX_NAME=agentic-ai-index
+GOOGLE_API_KEY=your_google_api_key
+```
+
+Optional Hugging Face authentication:
+
+```env
+HF_TOKEN=your_huggingface_token
+```
+
+Do not commit `.env` to GitHub.
+
+The repository contains `.env.example` for reference.
+
+---
+
+# 11. Pinecone Configuration
+
+The embedding model:
 
 ```text
-PINECONE_API_KEY=<your Pinecone API key>
-PINECONE_INDEX_NAME=agentic-ai-index
-GOOGLE_API_KEY=<your Google AI Studio API key>
+sentence-transformers/all-MiniLM-L6-v2
 ```
 
-## 6. PDF Ingestion
+produces vectors with:
 
-`src/ingestion.py` loads the eBook, splits it into 1000 character chunks with 200
-characters of overlap, embeds them with `all-MiniLM-L6-v2` and uploads them to
-Pinecone.
-
-```bash
-python src/ingestion.py
+```text
+Dimension: 384
 ```
 
-Run it from the project root so the relative path `data/Ebook-Agentic-AI.pdf`
-resolves. Re-running it uploads the chunks again, so it is only needed when the
-index is empty or the document changes.
+Therefore the Pinecone index must also use:
 
-## 7. Pinecone Setup
-
-`test_connections.py` creates the serverless index (`aws`, `us-east-1`) when it
-does not exist yet and waits until it is ready. `check_index.py` prints the index
-name, dimension, metric and host.
-
-```bash
-python test_connections.py
-python check_index.py
+```text
+Dimension: 384
+Metric: cosine
 ```
 
-The index must use dimension `384` and metric `cosine` because that is what the
-embedding model and `langchain-pinecone` expect.
+Example:
 
-## 8. Running the API
+```text
+Index Name: agentic-ai-index
+Dimension: 384
+Metric: cosine
+```
 
-```bash
+The embedding dimension and Pinecone index dimension must match.
+
+---
+
+# 12. Document Ingestion
+
+The current PDF contains:
+
+```text
+60 pages
+```
+
+The ingestion process creates:
+
+```text
+119 chunks
+```
+
+Run:
+
+```powershell
+python .\src\ingestion.py
+```
+
+Expected output includes:
+
+```text
+Loaded 60 pages from PDF.
+Created 119 chunks.
+Uploading chunks to Pinecone...
+Successfully uploaded chunks to Pinecone.
+```
+
+After successful ingestion, the document vectors are available in Pinecone.
+
+---
+
+# 13. Test the Retriever
+
+Run:
+
+```powershell
+python .\src\retriever.py
+```
+
+Example query:
+
+```text
+What is Agentic AI?
+```
+
+The retriever returns relevant chunks from the uploaded document.
+
+Example retrieved content includes:
+
+```text
+Agentic AI refers to systems capable of autonomous decision-making
+and action in pursuit of specific objectives.
+```
+
+---
+
+# 14. Test the LangGraph RAG Pipeline
+
+Run:
+
+```powershell
+python .\src\graph.py
+```
+
+Example:
+
+```text
+Query:
+What is Agentic AI?
+
+Final Answer:
+Agentic AI refers to systems capable of autonomous decision-making
+and action in pursuit of specific objectives.
+
+Grounded:
+True
+```
+
+The pipeline also returns:
+
+```text
+Confidence Score
+Grading Reason
+Retrieved Context
+```
+
+---
+
+# 15. Run the FastAPI Server
+
+Start the API:
+
+```powershell
 python -m uvicorn src.api:app --reload
 ```
 
-Interactive documentation is available at `http://127.0.0.1:8000/docs`.
+The API will run at:
 
-## 9. API Request and Response
+```text
+http://127.0.0.1:8000
+```
 
-`GET /health` reports the service status.
+---
+
+# 16. Swagger Documentation
+
+Open:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+Swagger provides an interactive interface for testing the API.
+
+---
+
+# 17. Health API
+
+### Endpoint
+
+```http
+GET /health
+```
+
+Example:
 
 ```bash
-curl http://127.0.0.1:8000/health
+curl -X GET http://127.0.0.1:8000/health
 ```
+
+Response:
 
 ```json
 {
@@ -116,105 +502,427 @@ curl http://127.0.0.1:8000/health
 }
 ```
 
-`POST /chat` accepts a JSON body with a single `query` field.
+---
+
+# 18. Chat API
+
+### Endpoint
+
+```http
+POST /chat
+```
+
+Request:
+
+```json
+{
+  "query": "What is Agentic AI?"
+}
+```
+
+Example curl:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -d "{\"query\": \"What is Agentic AI?\"}"
+curl -X POST "http://127.0.0.1:8000/chat" \
+  -H "Content-Type: application/json" \
+  -d "{\"query\":\"What is Agentic AI?\"}"
 ```
+
+---
+
+# 19. Response Structure
+
+The `/chat` endpoint returns:
 
 ```json
 {
   "query": "What is Agentic AI?",
   "final_answer": "Agentic AI refers to systems capable of autonomous decision-making and action in pursuit of specific objectives.",
-  "retrieved_context_chunks": ["chunk 1", "chunk 2"],
+  "retrieved_context_chunks": [
+    "Relevant document chunk 1",
+    "Relevant document chunk 2",
+    "Relevant document chunk 3"
+  ],
   "confidence_score": 1.0
 }
 ```
 
-| Status | Meaning |
-| --- | --- |
-| 200 | Answer generated |
-| 400 | The query is empty or whitespace only |
-| 422 | The request body does not contain a `query` field |
-| 500 | Pinecone or Gemini failed while answering |
+### Required Response Fields
 
-## 10. Sample Queries
+| Field                      | Type         | Description                             |
+| -------------------------- | ------------ | --------------------------------------- |
+| `query`                    | string       | User's question                         |
+| `final_answer`             | string       | Generated answer                        |
+| `retrieved_context_chunks` | list[string] | Retrieved document context              |
+| `confidence_score`         | float        | Confidence returned by the RAG pipeline |
+
+---
+
+# 20. Out-of-Context Question Handling
+
+The system is designed to avoid answering questions that cannot be supported by the uploaded document.
+
+For example:
 
 ```text
-What is the core definition of Agentic AI as outlined in the eBook?
-What are the main architectural components required to build agentic systems?
-What real-world industry use cases for Agentic AI are discussed in the eBook?
+Question:
 Who is the current Prime Minister of India?
 ```
 
-## 11. Groundedness and Confidence
-
-Every answer is graded before it is returned. The grading node sends the question,
-the answer and the retrieved chunks to `gemini-2.5-flash` and expects JSON:
-
-```json
-{
-  "grounded": true,
-  "confidence_score": 0.95,
-  "reason": "The answer is directly supported by the retrieved context."
-}
-```
-
-`grounded` decides whether the answer is accepted, and `confidence_score` is
-reported in the API response as a value between 0 and 1 that expresses how
-strongly the retrieved chunks support the answer. A grading response that cannot
-be parsed is treated as ungrounded with a score of `0.0`, and the run is retried
-once before it ends.
-
-## 12. Out-of-Context Behaviour
-
-The generation prompt only allows the retrieved chunks as a knowledge source. For
-a question outside the eBook, such as:
-
-```text
-Who is the current Prime Minister of India?
-```
-
-the returned answer is:
+The system can return:
 
 ```text
 I don't have enough information in the provided document to answer this question.
 ```
 
-## 13. Project Structure
+This behavior helps reduce unsupported or hallucinated answers.
 
-```text
-rag-agentic-ai/
-├── data/
-│   └── Ebook-Agentic-AI.pdf
-├── src/
-│   ├── __init__.py
-│   ├── api.py
-│   ├── config.py
-│   ├── graph.py
-│   ├── ingestion.py
-│   └── retriever.py
-├── test_connections.py
-├── check_index.py
-├── requirements.txt
-├── .env
-├── .env.example
-├── .gitignore
-└── README.md
+---
+
+# 21. API Validation
+
+Empty queries are rejected.
+
+Example:
+
+```json
+{
+  "query": ""
+}
 ```
 
-## 14. Limitations
+The API returns:
 
-- The knowledge source is the single ingested eBook.
-- Chunking is fixed at 1000 characters with 200 characters of overlap, and
-  retrieval always returns 5 chunks.
-- The embedding model and the Gemini model are hardcoded in `src/ingestion.py`,
-  `src/retriever.py` and `src/graph.py`.
-- Google and Pinecone failures, expired keys and exhausted Gemini quotas are
-  reported as HTTP 500 responses.
-- `confidence_score` is produced by the model and is not a deterministic metric.
-- `all-MiniLM-L6-v2` is small and fast, so retrieval quality is not domain
-  specific.
-- The API has no authentication, rate limiting or caching, and answers are not
-  streamed.
+```text
+400 Bad Request
+```
 
+Invalid request structures are handled through FastAPI/Pydantic validation and return:
+
+```text
+422 Unprocessable Entity
+```
+
+---
+
+# 22. Connection Testing
+
+The project includes:
+
+```text
+test_connections.py
+```
+
+Run:
+
+```powershell
+python .\test_connections.py
+```
+
+This verifies the Pinecone connection and index availability.
+
+You can also verify the Pinecone index using:
+
+```powershell
+python .\check_index.py
+```
+
+Expected configuration:
+
+```text
+Index name: agentic-ai-index
+Dimension: 384
+Metric: cosine
+Status: Ready
+```
+
+---
+
+# 23. Submission Requirement Checklist
+
+### Repository
+
+* [x] GitHub repository
+* [x] Project source code
+* [x] `.gitignore`
+* [x] `.env.example`
+
+### RAG Pipeline
+
+* [x] PDF ingestion
+* [x] Document chunking
+* [x] Hugging Face embeddings
+* [x] Pinecone vector storage
+* [x] Semantic retrieval
+* [x] LangGraph workflow
+* [x] Gemini generation
+* [x] Grounded response generation
+
+### API
+
+* [x] FastAPI application
+* [x] `GET /health`
+* [x] `POST /chat`
+* [x] Request validation
+* [x] Response validation
+* [x] Swagger/OpenAPI documentation
+
+### Response Requirements
+
+* [x] `final_answer`
+* [x] `retrieved_context_chunks`
+* [x] `confidence_score`
+
+### Testing
+
+* [x] Pinecone connection tested
+* [x] Embedding model tested
+* [x] Retriever tested
+* [x] LangGraph pipeline tested
+* [x] FastAPI health endpoint tested
+* [x] Chat endpoint tested
+* [x] Empty query validation tested
+* [x] Out-of-context query tested
+
+---
+
+# 24. Security
+
+API keys are stored in environment variables.
+
+The following file should never be committed:
+
+```text
+.env
+```
+
+The `.gitignore` contains:
+
+```text
+.env
+venv/
+.venv/
+__pycache__/
+*.pyc
+.cache/
+.pytest_cache/
+```
+
+Only `.env.example` should be committed with empty placeholder values.
+
+---
+
+# 25. Current Limitations
+
+### Gemini API Quota
+
+The Gemini free tier has request limits.
+
+If the configured Gemini project reaches its quota, `/chat` can return:
+
+```text
+429 Too Many Requests
+```
+
+This is an external API quota limitation and does not indicate a failure of the retrieval or Pinecone components.
+
+The RAG pipeline can otherwise be tested through the local LangGraph pipeline when Gemini quota is available.
+
+### Hugging Face Authentication
+
+The embedding model can be downloaded without authentication, but Hugging Face may display an unauthenticated-request warning.
+
+A Hugging Face token can be configured through:
+
+```env
+HF_TOKEN=your_huggingface_token
+```
+
+---
+
+# 26. Design Decisions
+
+### Why Hugging Face Embeddings?
+
+The project uses:
+
+```text
+sentence-transformers/all-MiniLM-L6-v2
+```
+
+for local embedding generation.
+
+This avoids depending on OpenAI's embedding API and produces 384-dimensional vectors suitable for the configured Pinecone index.
+
+### Why Pinecone?
+
+Pinecone provides vector storage and similarity search for retrieving semantically relevant document chunks.
+
+### Why LangGraph?
+
+LangGraph provides a structured workflow for coordinating retrieval, generation, and response processing.
+
+### Why FastAPI?
+
+FastAPI provides:
+
+* REST API support
+* Pydantic validation
+* Automatic OpenAPI documentation
+* Swagger UI
+* Easy local deployment
+
+### Why Gemini?
+
+Gemini is used as the generation model to produce natural-language responses from the retrieved document context.
+
+---
+
+# 27. End-to-End Execution
+
+For a fresh setup, use the following sequence:
+
+```powershell
+python -m venv venv
+```
+
+```powershell
+.\venv\Scripts\Activate.ps1
+```
+
+```powershell
+pip install -r requirements.txt
+```
+
+Configure:
+
+```text
+.env
+```
+
+Then ingest the document:
+
+```powershell
+python .\src\ingestion.py
+```
+
+Test retrieval:
+
+```powershell
+python .\src\retriever.py
+```
+
+Test the RAG pipeline:
+
+```powershell
+python .\src\graph.py
+```
+
+Start the API:
+
+```powershell
+python -m uvicorn src.api:app --reload
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+Then test:
+
+```http
+POST /chat
+```
+
+with:
+
+```json
+{
+  "query": "What is Agentic AI?"
+}
+```
+
+---
+
+# 28. Example RAG Flow
+
+For the query:
+
+```text
+What is Agentic AI?
+```
+
+the system performs:
+
+```text
+1. Receive user query
+       ↓
+2. Convert query into embedding
+       ↓
+3. Search Pinecone
+       ↓
+4. Retrieve relevant document chunks
+       ↓
+5. Construct context
+       ↓
+6. Send context + query to Gemini
+       ↓
+7. Generate grounded answer
+       ↓
+8. Calculate/return confidence
+       ↓
+9. Return API response
+```
+
+---
+
+# 29. Future Improvements
+
+Potential improvements include:
+
+* Streaming responses
+* Conversation history
+* Authentication
+* Persistent chat sessions
+* Better document parsing
+* Reranking retrieved chunks
+* Hybrid keyword + vector search
+* Citation/page references in answers
+* Automated evaluation datasets
+* Docker deployment
+* Cloud deployment
+* Observability and tracing
+* Rate limiting
+* Automated test suite
+
+---
+
+# 30. Repository
+
+GitHub Repository:
+
+https://github.com/Avishkar014/rag-agentic-ai
+
+---
+
+## Assignment Deliverables
+
+This repository provides:
+
+* Functional document ingestion
+* Vector embedding and storage
+* Semantic retrieval
+* LangGraph RAG pipeline
+* Gemini-based generation
+* FastAPI API
+* Health endpoint
+* Chat endpoint
+* Structured API responses
+* Confidence score
+* Retrieved context
+* Setup instructions
+* Architecture documentation
+* Testing instructions
+* Environment configuration
